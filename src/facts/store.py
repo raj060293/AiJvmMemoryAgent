@@ -1,3 +1,5 @@
+from facts.base import Fact
+
 
 class FactStore:
 
