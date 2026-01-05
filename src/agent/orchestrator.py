@@ -6,9 +6,11 @@ from facts.store import FactStore
 from rules.heap_usage_rule import HighHeapUsageRule
 from rules.issue import Issue
 from rules.large_retained_class_rule import LargeRetainedClassRule
+from rules.static_cache_leak_rule import StaticCacheLeakRule
 from tools.class_fact_extractor import ClassFactExtractor
 from tools.fake_heap_model import FakeHeapModel
 from tools.heap_model import HeapModel
+from tools.ownership_fact_extractor import OwnershipFactExtractor
 
 
 class MemoryAnalysisAgent:
@@ -21,6 +23,7 @@ class MemoryAnalysisAgent:
     def __init__(self):
         self.rules = [
             LargeRetainedClassRule(threshold_pct=40.0),
+            StaticCacheLeakRule(retained_heap_threshold_pct=30.0)
         ]
         self.explainer = LLMExplainer()
 
@@ -62,6 +65,10 @@ class MemoryAnalysisAgent:
         #Class level facts
         class_extractor = ClassFactExtractor()
         class_extractor.extract(heap_model, store)
+
+        # Ownership facts(Fake for now)
+        OwnershipFactExtractor().extract(heap_model, store)
+
         return store
 
     def _run_rules(self, fact_store):
