@@ -1,17 +1,16 @@
+import csv
+from pathlib import Path
 from typing import List
 
 from agent.llm_explainer import LLMExplainer
-from facts.heap_summary import HeapSummaryFact
 from facts.store import FactStore
-from rules.heap_usage_rule import HighHeapUsageRule
 from rules.issue import Issue
 from rules.large_retained_class_rule import LargeRetainedClassRule
 from rules.static_cache_leak_rule import StaticCacheLeakRule
-from tools.class_fact_extractor import ClassFactExtractor
-from tools.fake_heap_model import FakeHeapModel
-from tools.heap_model import HeapModel
-from tools.ownership_fact_extractor import OwnershipFactExtractor
-
+from tools.csv_parsers.dominator_parser import enrich_with_retained_size
+from tools.csv_parsers.gc_roots_parser import parse_gc_roots
+from tools.csv_parsers.histogram_parser import parse_histogram
+from tools.mat_runner import MatRunner
 
 class MemoryAnalysisAgent:
 
@@ -20,24 +19,32 @@ class MemoryAnalysisAgent:
     Heap -> Facts -> Rules -> Explanation
     """
 
-    def __init__(self):
+    def __init__(self, mat_exec: str):
+        self.mat_runner = MatRunner(mat_exec)
         self.rules = [
             LargeRetainedClassRule(threshold_pct=40.0),
             StaticCacheLeakRule(retained_heap_threshold_pct=30.0)
         ]
         self.explainer = LLMExplainer()
 
-    def analyze(self, heap_path: str):
+    def analyze(self, heap_path: str) -> None:
 
         """
         Entry point for heap analysis
         """
 
         print(f"Analyzing Heap Dump{heap_path}",heap_path)
+        heap_path = Path(heap_path)
+        if not heap_path.exists():
+            raise FileNotFoundError(heap_path)
 
-        heap = self._load_heap(heap_path)
-        facts = self._extract_facts(heap)
-        issues = self._run_rules(facts)
+        out_dir = Path("mat-output")
+        out_dir.mkdir(exist_ok=True)
+
+        self.mat_runner.run_reports(str(heap_path), str(out_dir))
+
+        fact_store = self._extract_facts(out_dir)
+        issues = self._run_rules(fact_store)
         report = self._explain_issues(issues)
         self._print_report(report)
 
@@ -45,31 +52,35 @@ class MemoryAnalysisAgent:
     # Internal orchestration steps
     # -----------------------------
 
-    def _load_heap(self, heap_path: str) -> HeapModel:
-        """
-        Loads the heap dump and returns a HeapModel Abstraction
-
-        For now, this uses FakeHeapModel.
-        Later, this will be replaced with Eclipse MAT adapter
-        """
-        print("[Agent] Loading heap model")
-        return FakeHeapModel()
-
-    def _extract_facts(self, heap_model: HeapModel) -> FactStore:
+    def _extract_facts(self, out_dir: Path) -> FactStore:
 
         """
         Extract all facts from heap model
         """
         store = FactStore()
+        histogram_csv = out_dir / "histogram.csv"
+        dominator_csv = out_dir / "dominator_csv"
+        gc_roots_csv = out_dir / "gc_roots.csv"
 
-        #Class level facts
-        class_extractor = ClassFactExtractor()
-        class_extractor.extract(heap_model, store)
+        total_heap_mb = self._estimate_total_heap_mb(histogram_csv)
 
-        # Ownership facts(Fake for now)
-        OwnershipFactExtractor().extract(heap_model, store)
-
+        parse_histogram(histogram_csv, total_heap_mb, store)
+        enrich_with_retained_size(dominator_csv, store, total_heap_mb)
+        parse_gc_roots(gc_roots_csv, store)
         return store
+
+    def _estimate_total_heap_mb(self, histogram_csv: Path):
+        """
+        Estimate total heap size from histogram CSV
+        """
+
+        total_bytes = 0
+        with open(histogram_csv, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                total_bytes+= int(row["Shallow Heap"])
+
+        return total_bytes / (1024*1024)
 
     def _run_rules(self, fact_store):
         """
