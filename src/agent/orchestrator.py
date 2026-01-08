@@ -7,6 +7,7 @@ from facts.store import FactStore
 from rules.issue import Issue
 from rules.large_retained_class_rule import LargeRetainedClassRule
 from rules.static_cache_leak_rule import StaticCacheLeakRule
+from rules.threadlocal_leak_rule import ThreadLocalLeakRule
 from tools.csv_parsers.dominator_parser import enrich_with_retained_size
 from tools.csv_parsers.gc_roots_parser import parse_gc_roots
 from tools.csv_parsers.histogram_parser import parse_histogram
@@ -23,7 +24,8 @@ class MemoryAnalysisAgent:
         self.mat_runner = MatRunner(mat_exec)
         self.rules = [
             LargeRetainedClassRule(threshold_pct=40.0),
-            StaticCacheLeakRule(retained_heap_threshold_pct=30.0)
+            StaticCacheLeakRule(retained_heap_threshold_pct=30.0),
+            ThreadLocalLeakRule(retained_heap_threshold_pct=20.0)
         ]
         self.explainer = LLMExplainer()
 
