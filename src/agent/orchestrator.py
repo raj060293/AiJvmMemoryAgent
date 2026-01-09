@@ -4,6 +4,7 @@ from typing import List
 
 from agent.llm_explainer import LLMExplainer
 from facts.store import FactStore
+from rules.classloader_leak_rule import ClassLoaderLeakRule
 from rules.issue import Issue
 from rules.large_retained_class_rule import LargeRetainedClassRule
 from rules.static_cache_leak_rule import StaticCacheLeakRule
@@ -25,7 +26,8 @@ class MemoryAnalysisAgent:
         self.rules = [
             LargeRetainedClassRule(threshold_pct=40.0),
             StaticCacheLeakRule(retained_heap_threshold_pct=30.0),
-            ThreadLocalLeakRule(retained_heap_threshold_pct=20.0)
+            ThreadLocalLeakRule(retained_heap_threshold_pct=20.0),
+            ClassLoaderLeakRule(retained_heap_threshold_pct=15.0)
         ]
         self.explainer = LLMExplainer()
 
