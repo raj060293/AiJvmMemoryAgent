@@ -2,6 +2,7 @@ import csv
 from pathlib import Path
 from typing import List
 
+from agent.confidence_scorer import ConfidenceScorer
 from agent.llm_explainer import LLMExplainer
 from facts.store import FactStore
 from rules.classloader_leak_rule import ClassLoaderLeakRule
@@ -30,6 +31,7 @@ class MemoryAnalysisAgent:
             ClassLoaderLeakRule(retained_heap_threshold_pct=15.0)
         ]
         self.explainer = LLMExplainer()
+        self.confidence_scorer = ConfidenceScorer()
 
     def analyze(self, heap_path: str) -> None:
 
@@ -93,8 +95,10 @@ class MemoryAnalysisAgent:
         issues: List[Issue] = []
 
         for rule in self.rules:
-            issues.extend(rule.apply(fact_store))
-
+            detected = rule.apply(fact_store)
+            for issue in detected:
+                issue.confidence = self.confidence_scorer.score(issue, fact_store)
+                issues.append(issue)
         return issues
 
     def _explain_issues(self, issues: List[Issue]) -> List[str]:
