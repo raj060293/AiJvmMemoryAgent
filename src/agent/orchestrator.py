@@ -3,8 +3,10 @@ from pathlib import Path
 from typing import List
 
 from agent.confidence_scorer import ConfidenceScorer
+from agent.fix_template_resolver import FixTemplateResolver
 from agent.llm_explainer import LLMExplainer
 from facts.store import FactStore
+from rules import issue
 from rules.classloader_leak_rule import ClassLoaderLeakRule
 from rules.issue import Issue
 from rules.large_retained_class_rule import LargeRetainedClassRule
@@ -30,6 +32,7 @@ class MemoryAnalysisAgent:
             ThreadLocalLeakRule(retained_heap_threshold_pct=20.0),
             ClassLoaderLeakRule(retained_heap_threshold_pct=15.0)
         ]
+        self.fix_resolver = FixTemplateResolver()
         self.explainer = LLMExplainer()
         self.confidence_scorer = ConfidenceScorer()
 
@@ -96,26 +99,64 @@ class MemoryAnalysisAgent:
 
         for rule in self.rules:
             detected = rule.apply(fact_store)
-            for issue in detected:
-                issue.confidence = self.confidence_scorer.score(issue, fact_store)
-                issues.append(issue)
+            issues.extend(detected)
         return issues
 
-    def _explain_issues(self, issues: List[Issue]) -> List[str]:
+    def _enrich_issues(self, issues: List[Issue], fact_store: FactStore) -> None:
         """
         Uses the LLM explainer to convert issues to explanations
         """
         if not issues:
-            return ["Heap looks healthy. No major issues detected"]
+            return
 
-        print("[Agent] Explaining issues")
-        return self.explainer.explain(issues)
+        # -----------------
+        # Confidence
+        # -----------------
 
-    def _print_report(self, report: List[str]) -> None:
+        for issue in issues:
+            score, bucket = self.confidence_scorer.score(issue, fact_store)
+            issue.confidence_score = score
+            issue.confidence = bucket
+
+        # -----------------
+        # Fix templates
+        # -----------------
+
+        for issue in issues:
+            self.fix_resolver.resolve(issue)
+
+        # -----------------
+        # Explanations (LLM or fallback)
+        # -----------------
+
+        self.explainer.explain(issues)
+
+
+    def _print_report(self, issues: List[Issue]) -> None:
         """
-        Prints the final human-readable report.
+        Prints a simple human-readable report to console
         """
-        print("\n========== Memory Analysis Report ==========")
-        for line in report:
-            print(f"- {line}")
-        print("===========================================\n")
+
+        print("\n========== JVM Memory Analysis Report ==========")
+
+        if not issues:
+            print("✔ Heap looks healthy. No major issues detected.")
+            print("===============================================\n")
+            return
+
+        for issue in issues:
+            print(f"\n Issue:{issue.name}")
+            print(f"    Severity    : {issue.severity}")
+            print(f"    Confidence  : {issue.confidence} ({issue.confidence_score}%)")
+            print(f"    Summary     : {issue.fix.summary}")
+
+            print("   Recommended Actions:")
+            for action in issue.fix.actions:
+                print(f"     - {action}")
+
+            if issue.explanation:
+                print("\n   Explanation:")
+                print(issue.explanation["text"])
+
+            print("\n===============================================\n")
+

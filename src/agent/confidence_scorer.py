@@ -8,7 +8,7 @@ class ConfidenceScorer:
     Computes confidence score for detected issues based on evidence
     """
 
-    def score(self, issue: Issue, fact_store: FactStore) -> str:
+    def score(self, issue: Issue, fact_store: FactStore) -> tuple[int, str]:
         score = 0
         evidence = issue.evidence
         class_name = evidence.get("class_name")
@@ -50,7 +50,7 @@ class ConfidenceScorer:
         if self._looks_like_cache(class_name):
             score+=10
 
-        return self._bucket(score)
+        return score, self._bucket(score)
 
     def _bucket(self, score: int) -> str:
         if score >= 70:
@@ -60,6 +60,9 @@ class ConfidenceScorer:
         else:
             return "Low"
 
-    def _looks_like_cache(self, class_name: str) -> bool:
+    def _looks_like_cache(self, class_name: str | None) -> bool:
+        if not class_name:
+            return False
+
         keywords = ["Cache", "Map", "ConcurrentHashMap", "LRU", "Caffeine"]
         return any(k in class_name for k in keywords)
